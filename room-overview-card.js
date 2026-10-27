@@ -4,7 +4,7 @@
  * et interrupteurs/lumières en tuiles. Style verre, thème clair/sombre automatique, éditeur visuel.
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 const DEFAULTS = {
   title: "",
@@ -94,26 +94,75 @@ class RoomOverviewCard extends HTMLElement {
     if (id) this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: id } }));
   }
 
+  _tz() {
+    return (this._hass && this._hass.config && this._hass.config.time_zone) || undefined;
+  }
+
+  _lang() {
+    return (this._hass && this._hass.locale && this._hass.locale.language) || "fr";
+  }
+
+  // Date/heure lisible : « Aujourd'hui 07:30 », « Demain 07:30 », « mar. 28 oct. 07:30 »
+  _when(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return null;
+    const tz = this._tz(), lang = this._lang();
+    const day = (x) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(x);
+    const time = new Intl.DateTimeFormat(lang, { hour: "2-digit", minute: "2-digit", timeZone: tz }).format(d);
+    const now = new Date();
+    const diffDays = Math.round((new Date(day(d)) - new Date(day(now))) / 86400000);
+    let label;
+    if (diffDays === 0) label = "Aujourd'hui " + time;
+    else if (diffDays === 1) label = "Demain " + time;
+    else label = new Intl.DateTimeFormat(lang, { weekday: "short", day: "numeric", month: "short", timeZone: tz }).format(d) + " " + time;
+    const mins = Math.round((d - now) / 60000);
+    let rel = "";
+    if (mins > 0 && mins < 60) rel = "dans " + mins + " min";
+    else if (mins >= 60 && mins < 1440) rel = "dans " + Math.floor(mins / 60) + " h " + String(mins % 60).padStart(2, "0");
+    else if (mins >= 1440) rel = "dans " + Math.round(mins / 1440) + " j";
+    return { label, rel };
+  }
+
+  _read(item, st) {
+    const a = (st && st.attributes) || {};
+    const dc = a.device_class;
+    const domain = (item.entity || "").split(".")[0];
+    const isTs = dc === "timestamp" || (st && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(st.state)));
+    if (isTs && (!st || st.state === "unavailable" || st.state === "unknown")) return { value: "Aucune alarme", tone: "", sub: "" };
+    if (unavailable(st)) return { value: "—", tone: "", sub: "" };
+    if (isTs) {
+      const w = this._when(st.state);
+      if (w) return { value: w.label, tone: "", sub: w.rel };
+    }
+    if (domain === "binary_sensor") {
+      const pair = BIN[dc] || ["Actif", "Inactif"];
+      const on = st.state === "on";
+      return { value: on ? pair[0] : pair[1], sub: "", tone: on ? (["door", "window", "opening", "garage_door", "smoke", "moisture", "lock"].includes(dc) ? "warn" : "ok") : "" };
+    }
+    if (isNum(st.state)) return { value: this._fmt(st.state) + (a.unit_of_measurement ? " " + a.unit_of_measurement : ""), tone: "", sub: "" };
+    return { value: String(st.state), tone: "", sub: "" };
+  }
+
+  _info(item) {
+    const st = this._hass.states[item.entity];
+    const a = (st && st.attributes) || {};
+    const r = this._read(item, st);
+    const icon = item.icon || a.icon || (a.device_class === "timestamp" ? "mdi:alarm" : DC_ICON[a.device_class]) || "mdi:information-outline";
+    const label = item.name || a.friendly_name || item.entity;
+    return `<button class="tile info ${r.tone}" data-more="${esc(item.entity)}" title="${esc(label)}">
+      <span class="ti"><ha-icon icon="${esc(icon)}"></ha-icon></span>
+      <span class="tt"><small>${esc(label)}</small><b>${esc(r.value)}</b>${r.sub ? `<small class="sb">${esc(r.sub)}</small>` : ""}</span></button>`;
+  }
+
   _chip(item) {
     const h = this._hass;
     const st = h.states[item.entity];
     const a = (st && st.attributes) || {};
     const dc = a.device_class;
     const domain = (item.entity || "").split(".")[0];
-    let value = "—", tone = "";
-    if (!unavailable(st)) {
-      if (domain === "binary_sensor") {
-        const pair = BIN[dc] || ["Actif", "Inactif"];
-        const on = st.state === "on";
-        value = on ? pair[0] : pair[1];
-        tone = on ? (["door", "window", "opening", "garage_door", "smoke", "moisture", "lock"].includes(dc) ? "warn" : "ok") : "";
-      } else if (isNum(st.state)) {
-        value = this._fmt(st.state) + (a.unit_of_measurement ? " " + a.unit_of_measurement : "");
-      } else {
-        value = String(st.state);
-      }
-    }
-    const icon = item.icon || a.icon || DC_ICON[dc] || "mdi:information-outline";
+    const r = this._read(item, st);
+    const value = r.value, tone = r.tone, sub = r.sub;
+    const icon = item.icon || a.icon || (dc === "timestamp" ? "mdi:alarm" : DC_ICON[dc]) || "mdi:information-outline";
     const label = item.name || a.friendly_name || item.entity;
     return `<button class="chip ${tone}" data-more="${esc(item.entity)}" title="${esc(label)}">
       <ha-icon icon="${esc(icon)}"></ha-icon><span class="cv">${esc(value)}</span>${item.name ? `<span class="cn">${esc(item.name)}</span>` : ""}</button>`;
@@ -137,8 +186,9 @@ class RoomOverviewCard extends HTMLElement {
     if (!c || !this._hass) return;
     const dark = this._isDark();
     const cols = Number(c.columns) > 0 ? Number(c.columns) : 0;
-    const chips = c.sensors.filter((s) => s.entity).map((s) => this._chip(s)).join("");
-    const tiles = c.toggles.filter((t) => t.entity).map((t, i) => this._tile(t, c.toggles.indexOf(t))).join("");
+    const chips = c.sensors.filter((s) => s.entity && s.size !== "large").map((s) => this._chip(s)).join("");
+    const infos = c.sensors.filter((s) => s.entity && s.size === "large").map((s) => this._info(s)).join("");
+    const tiles = infos + c.toggles.filter((t) => t.entity).map((t, i) => this._tile(t, c.toggles.indexOf(t))).join("");
     const imgOk = c.image && !/^\s*(javascript|vbscript|data:text)/i.test(String(c.image));
     const mode = ["background", "top", "side"].includes(c.image_mode) ? c.image_mode : "background";
     const fit = c.image_fit === "contain" ? "contain" : "cover";
@@ -198,10 +248,13 @@ class RoomOverviewCard extends HTMLElement {
         .ti { display:grid; place-items:center; width:2.4em; height:2.4em; border-radius:50%; background:var(--rm-fill); border:1px solid var(--rm-fill-b); color:var(--rm-muted); flex:none; }
         .tt { display:flex; flex-direction:column; min-width:0; }
         .tt b { font-size:.88em; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .tt small { font-size:.74em; color:var(--rm-muted); }
+        .tt small { font-size:.74em; color:var(--rm-muted); } .tile.info .tt b { font-size:.95em; }
         .tile.on { border-color:var(--rm-acc); box-shadow:inset 0 0 1.8em color-mix(in srgb, var(--rm-acc) 16%, transparent); }
         .tile.on .ti { color:var(--rm-acc); border-color:var(--rm-acc); background:color-mix(in srgb, var(--rm-acc) 16%, transparent); }
         .tile.na { opacity:.45; cursor:default; }
+        .tile.info { cursor:pointer; }
+        .tile.info .tt small.sb { color:var(--rm-acc); font-weight:600; }
+        .tile.info.warn .ti { color:var(--rm-warn); } .tile.info.ok .ti { color:var(--rm-ok); }
         .empty { color:var(--rm-muted); font-size:.9em; }
       </style>
       <ha-card class="${dark ? "dark" : "light"}">
@@ -238,13 +291,17 @@ class RoomOverviewCard extends HTMLElement {
 /* ---------- Éditeur visuel ---------- */
 const LABELS = {
   title: "Titre (nom de la pièce)", icon: "Icône", theme: "Thème", columns: "Colonnes des tuiles (0 = automatique)",
-  entity: "Entité", name: "Nom (facultatif)",
+  entity: "Entité", name: "Nom (facultatif)", size: "Affichage",
   image: "Image de la pièce (ex. /local/jurassic.jpg)", image_mode: "Position de l'image", image_opacity: "Opacité de l'image de fond (0 à 1)",
   image_height: "Hauteur du bandeau (px)", image_width: "Largeur de l'image sur le côté (%)", image_side: "Côté de l'image", image_fit: "Cadrage de l'image",
 };
 const LIST_SCHEMA = [
   { name: "entity", selector: { entity: {} } },
   { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} } }] },
+];
+const SENSOR_SCHEMA = [
+  ...LIST_SCHEMA,
+  { name: "size", selector: { select: { mode: "dropdown", options: [{ value: "chip", label: "Petite pastille" }, { value: "large", label: "Grande tuile (comme les interrupteurs)" }] } } },
 ];
 const LISTS = [
   { key: "sensors", label: "Capteur", add: "+ Ajouter un capteur / une pastille" },
@@ -330,7 +387,7 @@ class RoomOverviewCardEditor extends HTMLElement {
         f.hass = this._hass;
         f.data = item;
         f.computeLabel = (s) => LABELS[s.name] || s.name;
-        f.schema = LIST_SCHEMA;
+        f.schema = l.key === "sensors" ? SENSOR_SCHEMA : LIST_SCHEMA;
         f.addEventListener("value-changed", (ev) => {
           ev.stopPropagation();
           this._config[l.key][i] = { ...ev.detail.value };

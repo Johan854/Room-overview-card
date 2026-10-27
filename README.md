@@ -25,7 +25,7 @@ toggles:
 | Option | Description |
 |---|---|
 | `title`, `icon` | Nom et icône de la pièce (l'icône s'allume quand un élément est allumé) |
-| `sensors[]` | Pastilles : `entity`, `name`, `icon` facultatifs. Les capteurs binaires (porte, fenêtre, mouvement…) affichent « Ouverte/Fermée », etc. |
+| `sensors[]` | Pastilles : `entity`, `name`, `icon` facultatifs ; `size: large` l'affiche en grande tuile comme un interrupteur (ex. prochaine alarme d'un Echo : « Demain 07:15 — dans 11 h 30 », ou « Aucune alarme »). Les capteurs binaires (porte, fenêtre, mouvement…) affichent « Ouverte/Fermée », etc. |
 | `toggles[]` | Tuiles cliquables : un appui bascule l'entité, un appui long ouvre ses détails |
 | `image` | Image de la pièce (ex. `/local/jurassic-park.jpg`, dossier `/config/www/`) |
 | `image_mode` | `background` (fond de carte, défaut), `top` (bandeau au-dessus) ou `side` (sur le côté) |
@@ -47,6 +47,9 @@ image_height: 140
 sensors:
   - entity: sensor.temperature_logan_temperature
   - entity: sensor.temperature_logan_humidite
+  - entity: sensor.echo_dot_logan_prochaine_alarme   # prochaine alarme de l'Echo Dot
+    name: Prochaine alarme
+    size: large
 toggles:
   - entity: switch.veilleuse_logan
 ```
