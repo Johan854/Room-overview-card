@@ -27,7 +27,29 @@ toggles:
 | `title`, `icon` | Nom et icône de la pièce (l'icône s'allume quand un élément est allumé) |
 | `sensors[]` | Pastilles : `entity`, `name`, `icon` facultatifs. Les capteurs binaires (porte, fenêtre, mouvement…) affichent « Ouverte/Fermée », etc. |
 | `toggles[]` | Tuiles cliquables : un appui bascule l'entité, un appui long ouvre ses détails |
+| `image` | Image de la pièce (ex. `/local/jurassic-park.jpg`, dossier `/config/www/`) |
+| `image_mode` | `background` (fond de carte, défaut), `top` (bandeau au-dessus) ou `side` (sur le côté) |
+| `image_opacity` | Fond : opacité de 0 à 1 (0,35 par défaut) pour garder le texte lisible |
+| `image_height` | Bandeau du haut : hauteur en px (130 par défaut) |
+| `image_width`, `image_side` | Côté : largeur en % (38 par défaut) et `left` / `right` |
+| `image_fit` | `cover` (remplit, rogne) ou `contain` (image entière) |
 | `columns` | Colonnes des tuiles (0 = automatique) |
 | `theme` | `auto`, `light`, `dark` |
+
+### Exemple : chambre d'enfant personnalisée
+```yaml
+type: custom:room-overview-card
+title: Chambre Logan
+icon: mdi:bed
+image: /local/minecraft.jpg
+image_mode: top
+image_height: 140
+sensors:
+  - entity: sensor.temperature_logan_temperature
+  - entity: sensor.temperature_logan_humidite
+toggles:
+  - entity: switch.veilleuse_logan
+```
+Une carte par chambre : chacune peut avoir son image (Jurassic Park pour l'une, Minecraft pour l'autre).
 
 Licence MIT.

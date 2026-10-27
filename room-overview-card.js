@@ -4,13 +4,20 @@
  * et interrupteurs/lumières en tuiles. Style verre, thème clair/sombre automatique, éditeur visuel.
  */
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 
 const DEFAULTS = {
   title: "",
   icon: "mdi:sofa",
   theme: "auto", // auto | light | dark
   columns: 0, // colonnes des tuiles (0 = automatique)
+  image: "", // image de la pièce (ex. /local/jurassic.jpg)
+  image_mode: "background", // background | top | side
+  image_opacity: 0.35, // fond : 0 (invisible) à 1 (pleine)
+  image_height: 130, // bandeau du haut, en px
+  image_width: 38, // image sur le côté, en % de la carte
+  image_side: "left", // left | right
+  image_fit: "cover", // cover | contain
   sensors: [],
   toggles: [],
 };
@@ -132,6 +139,14 @@ class RoomOverviewCard extends HTMLElement {
     const cols = Number(c.columns) > 0 ? Number(c.columns) : 0;
     const chips = c.sensors.filter((s) => s.entity).map((s) => this._chip(s)).join("");
     const tiles = c.toggles.filter((t) => t.entity).map((t, i) => this._tile(t, c.toggles.indexOf(t))).join("");
+    const imgOk = c.image && !/^\s*(javascript|vbscript|data:text)/i.test(String(c.image));
+    const mode = ["background", "top", "side"].includes(c.image_mode) ? c.image_mode : "background";
+    const fit = c.image_fit === "contain" ? "contain" : "cover";
+    const op = Math.max(0, Math.min(1, isNum(c.image_opacity) ? Number(c.image_opacity) : 0.35));
+    const imgTag = (cls) => `<img class="${cls}" src="${esc(c.image)}" alt="" loading="lazy" style="object-fit:${fit}">`;
+    const bg = imgOk && mode === "background" ? `<div class="bg" style="opacity:${op}">${imgTag("bgimg")}</div>` : "";
+    const banner = imgOk && mode === "top" ? `<div class="banner" style="height:${Math.max(40, Number(c.image_height) || 130)}px">${imgTag("bnimg")}</div>` : "";
+    const side = imgOk && mode === "side" ? `<div class="sideimg" style="flex:0 0 ${Math.max(15, Math.min(70, Number(c.image_width) || 38))}%">${imgTag("sdimg")}</div>` : "";
     const anyOn = c.toggles.some((t) => { const s = t.entity && this._hass.states[t.entity]; return s && s.state === "on"; });
 
     this.shadowRoot.innerHTML = `
@@ -153,6 +168,19 @@ class RoomOverviewCard extends HTMLElement {
           border-radius:24px; border:1px solid var(--rm-border); background:var(--rm-bg); box-shadow:var(--rm-shadow); }
         ha-icon { --mdc-icon-size:1.25em; flex:none; }
         button { font:inherit; color:inherit; cursor:pointer; border:0; background:none; padding:0; text-align:left; -webkit-tap-highlight-color:transparent; }
+        ha-card { position:relative; }
+        .bg { position:absolute; inset:0; pointer-events:none; z-index:0; }
+        .bgimg { width:100%; height:100%; display:block; }
+        .banner { position:relative; margin:-16px -16px 0; overflow:hidden; z-index:1; }
+        .bnimg { width:100%; height:100%; display:block; }
+        .banner::after { content:""; position:absolute; inset:auto 0 0 0; height:45%; background:linear-gradient(180deg, transparent, var(--rm-fade)); }
+        ha-card.dark { --rm-fade:rgba(27,30,50,.9); } ha-card.light { --rm-fade:rgba(244,246,252,.95); }
+        .wrap { position:relative; z-index:1; display:flex; gap:12px; align-items:stretch; }
+        .wrap.side-right { flex-direction:row-reverse; }
+        .in { flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:12px; }
+        .sideimg { position:relative; border-radius:16px; overflow:hidden; min-height:120px; border:1px solid var(--rm-glass-b); }
+        .sdimg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+        ha-card:has(.bg) .head { text-shadow:0 1px 6px rgba(0,0,0,.35); }
         .head { display:flex; align-items:center; gap:.6em; font-size:1.1em; font-weight:650; }
         .head ha-icon { color:${anyOn ? "var(--rm-acc)" : "var(--rm-muted)"}; }
         .chips { display:flex; flex-wrap:wrap; gap:.5em; }
@@ -177,10 +205,16 @@ class RoomOverviewCard extends HTMLElement {
         .empty { color:var(--rm-muted); font-size:.9em; }
       </style>
       <ha-card class="${dark ? "dark" : "light"}">
-        ${c.title ? `<div class="head"><ha-icon icon="${esc(c.icon || "mdi:sofa")}"></ha-icon>${esc(c.title)}</div>` : ""}
-        ${chips ? `<div class="chips">${chips}</div>` : ""}
-        ${tiles ? `<div class="tiles">${tiles}</div>` : ""}
-        ${!chips && !tiles ? `<div class="empty">Ajoutez des capteurs et des interrupteurs dans l'éditeur de la carte.</div>` : ""}
+        ${bg}${banner}
+        <div class="wrap ${side ? "hasside side-" + (c.image_side === "right" ? "right" : "left") : ""}">
+          ${side}
+          <div class="in">
+            ${c.title ? `<div class="head"><ha-icon icon="${esc(c.icon || "mdi:sofa")}"></ha-icon>${esc(c.title)}</div>` : ""}
+            ${chips ? `<div class="chips">${chips}</div>` : ""}
+            ${tiles ? `<div class="tiles">${tiles}</div>` : ""}
+            ${!chips && !tiles ? `<div class="empty">Ajoutez des capteurs et des interrupteurs dans l'éditeur de la carte.</div>` : ""}
+          </div>
+        </div>
       </ha-card>`;
 
     const root = this.shadowRoot;
@@ -205,6 +239,8 @@ class RoomOverviewCard extends HTMLElement {
 const LABELS = {
   title: "Titre (nom de la pièce)", icon: "Icône", theme: "Thème", columns: "Colonnes des tuiles (0 = automatique)",
   entity: "Entité", name: "Nom (facultatif)",
+  image: "Image de la pièce (ex. /local/jurassic.jpg)", image_mode: "Position de l'image", image_opacity: "Opacité de l'image de fond (0 à 1)",
+  image_height: "Hauteur du bandeau (px)", image_width: "Largeur de l'image sur le côté (%)", image_side: "Côté de l'image", image_fit: "Cadrage de l'image",
 };
 const LIST_SCHEMA = [
   { name: "entity", selector: { entity: {} } },
@@ -259,6 +295,20 @@ class RoomOverviewCardEditor extends HTMLElement {
       ] },
       { name: "theme", selector: { select: { mode: "dropdown", options: [
         { value: "auto", label: "Automatique (thème de Home Assistant)" }, { value: "light", label: "Clair" }, { value: "dark", label: "Sombre" } ] } } },
+      { type: "expandable", title: "Image de la pièce", name: "", schema: [
+        { name: "image", selector: { text: {} } },
+        { name: "image_mode", selector: { select: { mode: "dropdown", options: [
+          { value: "background", label: "En fond de carte" }, { value: "top", label: "Bandeau au-dessus" }, { value: "side", label: "Sur le côté" } ] } } },
+        { name: "image_opacity", selector: { number: { min: 0, max: 1, step: 0.05, mode: "slider" } } },
+        { type: "grid", name: "", schema: [
+          { name: "image_height", selector: { number: { min: 40, max: 400, mode: "box" } } },
+          { name: "image_width", selector: { number: { min: 15, max: 70, mode: "box" } } },
+        ] },
+        { type: "grid", name: "", schema: [
+          { name: "image_side", selector: { select: { mode: "dropdown", options: [{ value: "left", label: "À gauche" }, { value: "right", label: "À droite" }] } } },
+          { name: "image_fit", selector: { select: { mode: "dropdown", options: [{ value: "cover", label: "Remplir (rogner)" }, { value: "contain", label: "Entière" }] } } },
+        ] },
+      ] },
     ];
     main.addEventListener("value-changed", (ev) => {
       ev.stopPropagation();
